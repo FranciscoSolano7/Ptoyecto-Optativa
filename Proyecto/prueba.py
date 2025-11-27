@@ -558,6 +558,189 @@ def mostrar_dashboard():
         except Exception as e:
             lb_output.insert(tk.END, f"Error al cargar dashboard: {e}")
 
+@requiere_entrenador
+def eliminar_usuario():
+    """Permite a un entrenador eliminar cualquier usuario del sistema, manejando sesiones relacionadas."""
+    try:
+        # Cargar todos los usuarios del sistema
+        clientes = Cliente.listar_todos()
+        entrenadores = Entrenador.listar_todos()
+        
+        if not clientes and not entrenadores:
+            messagebox.showwarning("Advertencia", "No hay usuarios registrados en el sistema.")
+            return
+        
+        # Crear lista combinada de usuarios
+        todos_usuarios = []
+        for cliente in clientes:
+            # Contar sesiones del cliente
+            sesiones_cliente = SesionEntrenamiento.buscar_por_cliente(cliente.id)
+            sesiones_activas = [s for s in sesiones_cliente if s.estado != 'FINALIZADA']
+            
+            todos_usuarios.append({
+                'id': cliente.id,
+                'nombre': cliente.nombre,
+                'email': cliente.email,
+                'tipo': 'CLIENTE',
+                'info_adicional': f"Nivel: {cliente.nivel_fitness} | Sesiones activas: {len(sesiones_activas)}"
+            })
+        
+        for entrenador in entrenadores:
+            # Contar sesiones del entrenador
+            sesiones_entrenador = SesionEntrenamiento.buscar_por_entrenador(entrenador.id)
+            sesiones_activas = [s for s in sesiones_entrenador if s.estado != 'FINALIZADA']
+            planes_entrenador = entrenador.obtener_planes()
+            
+            todos_usuarios.append({
+                'id': entrenador.id,
+                'nombre': entrenador.nombre,
+                'email': entrenador.email,
+                'tipo': 'ENTRENADOR',
+                'info_adicional': f"Especialidad: {entrenador.especialidad} | Planes: {len(planes_entrenador)} | Sesiones activas: {len(sesiones_activas)}"
+            })
+        
+        # Mostrar lista de usuarios
+        lista_usuarios = [f"ID: {user['id']} | {user['nombre']} ({user['tipo']}) - {user['info_adicional']}" 
+                         for user in todos_usuarios]
+        
+        usuario_info = simpledialog.askstring("Eliminar Usuario", 
+                                            f"Usuarios del sistema:\n" + "\n".join(lista_usuarios) + 
+                                            "\n\nIngrese ID del usuario a eliminar:")
+        if not usuario_info:
+            return
+        
+        try:
+            usuario_id = int(usuario_info)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        # Buscar el usuario
+        usuario_a_eliminar = None
+        tipo_usuario = None
+        
+        # Buscar como cliente primero
+        usuario_a_eliminar = Cliente.buscar_por_id(usuario_id)
+        if usuario_a_eliminar:
+            tipo_usuario = 'CLIENTE'
+        else:
+            # Buscar como entrenador
+            usuario_a_eliminar = Entrenador.buscar_por_id(usuario_id)
+            if usuario_a_eliminar:
+                tipo_usuario = 'ENTRENADOR'
+        
+        if not usuario_a_eliminar:
+            messagebox.showwarning("Error", "Usuario no encontrado.")
+            return
+        
+        # Verificar que no se está intentando eliminar a sí mismo
+        if usuario_a_eliminar.id == current_user.id:
+            messagebox.showwarning("Error", "No puedes eliminarte a ti mismo.")
+            return
+        
+        # Obtener información de sesiones para mostrar en la confirmación
+        sesiones_usuario = []
+        if tipo_usuario == 'CLIENTE':
+            sesiones_usuario = SesionEntrenamiento.buscar_por_cliente(usuario_id)
+        else:  # ENTRENADOR
+            sesiones_usuario = SesionEntrenamiento.buscar_por_entrenador(usuario_id)
+        
+        sesiones_activas = [s for s in sesiones_usuario if s.estado != 'FINALIZADA']
+        sesiones_finalizadas = [s for s in sesiones_usuario if s.estado == 'FINALIZADA']
+        
+        # Confirmación de eliminación con información detallada
+        mensaje_confirmacion = (
+            f"¿Estás seguro de que deseas eliminar al siguiente usuario?\n\n"
+            f"ID: {usuario_a_eliminar.id}\n"
+            f"Nombre: {usuario_a_eliminar.nombre}\n"
+            f"Email: {usuario_a_eliminar.email}\n"
+            f"Tipo: {tipo_usuario}\n"
+            f"Sesiones activas: {len(sesiones_activas)}\n"
+            f"Sesiones finalizadas: {len(sesiones_finalizadas)}\n\n"
+            f" Esta acción eliminará TODAS las sesiones del usuario.\n"
+            f" Esta acción no se puede deshacer."
+        )
+        
+        confirmacion = messagebox.askyesno("Confirmar Eliminación", mensaje_confirmacion)
+        
+        if not confirmacion:
+            return
+        
+        # Eliminar el usuario y sus sesiones
+        try:
+            from db_connection import create_connection
+            conn = create_connection()
+            cursor = conn.cursor()
+            
+            try:
+                if tipo_usuario == 'CLIENTE':
+                    # Para cliente: eliminar sesiones primero, luego el cliente
+                    if sesiones_usuario:
+                        # Eliminar todas las sesiones del cliente
+                        cursor.execute("DELETE FROM sesion_entrenamiento WHERE id_cliente = %s", (usuario_id,))
+                    
+                    # Eliminar de tabla cliente (cascade eliminará de usuario)
+                    cursor.execute("DELETE FROM cliente WHERE id_usuario = %s", (usuario_id,))
+                    
+                else:  # ENTRENADOR
+                    # Para entrenador: manejar planes y sesiones primero
+                    
+                    # Verificar si el entrenador tiene planes creados
+                    cursor.execute("SELECT COUNT(*) FROM plan_entrenamiento WHERE id_entrenador = %s", (usuario_id,))
+                    tiene_planes = cursor.fetchone()[0] > 0
+                    
+                    if tiene_planes:
+                        # Preguntar qué hacer con los planes
+                        opcion_planes = messagebox.askyesno(
+                            "Planes del Entrenador",
+                            f"El entrenador {usuario_a_eliminar.nombre} tiene planes creados.\n\n"
+                            f"¿Deseas eliminar también todos sus planes?\n\n"
+                            f"Si seleccionas 'No', la eliminación se cancelará."
+                        )
+                        
+                        if opcion_planes:
+                            # Eliminar planes del entrenador (cascade eliminará las sesiones relacionadas)
+                            cursor.execute("DELETE FROM plan_entrenamiento WHERE id_entrenador = %s", (usuario_id,))
+                        else:
+                            messagebox.showinfo("Cancelado", "Eliminación cancelada.")
+                            return
+                    else:
+                        # Si no tiene planes, eliminar sus sesiones directamente
+                        if sesiones_usuario:
+                            cursor.execute("DELETE FROM sesion_entrenamiento WHERE id_entrenador = %s", (usuario_id,))
+                    
+                    # Eliminar de tabla entrenador
+                    cursor.execute("DELETE FROM entrenador WHERE id_usuario = %s", (usuario_id,))
+                
+                conn.commit()
+                
+                # Mensaje de éxito con resumen
+                mensaje_exito = (
+                    f" Usuario eliminado correctamente:\n\n"
+                    f"Nombre: {usuario_a_eliminar.nombre}\n"
+                    f"Tipo: {tipo_usuario}\n"
+                    f"Sesiones eliminadas: {len(sesiones_usuario)}\n"
+                )
+                
+                if tipo_usuario == 'ENTRENADOR' and tiene_planes:
+                    mensaje_exito += f"Planes eliminados: {tiene_planes}\n"
+                
+                messagebox.showinfo("Éxito", mensaje_exito)
+                listar_usuarios()  # Actualizar la lista
+                
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                cursor.close()
+                conn.close()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo eliminar el usuario:\n{e}")
+            
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al procesar la eliminación:\n{e}")
+
 def salir():
     root.destroy()
     sys.exit(0)
@@ -582,12 +765,14 @@ def ajustar_menu_por_rol():
         acciones_menu.entryconfig("Agregar ejercicio a plan", state="normal")
         acciones_menu.entryconfig("Programar sesión", state="normal")
         acciones_menu.entryconfig("Simular entrenamiento", state="normal")
+        acciones_menu.entryconfig("Eliminar usuario", state="normal")
         acciones_menu.entryconfig("Calificar sesión", state="disabled")
     elif isinstance(current_user, Cliente):
         acciones_menu.entryconfig("Crear plan entrenamiento", state="disabled")
         acciones_menu.entryconfig("Agregar ejercicio a plan", state="disabled")
         acciones_menu.entryconfig("Programar sesión", state="normal")
         acciones_menu.entryconfig("Simular entrenamiento", state="disabled")
+        acciones_menu.entryconfig("Eliminar usuario", state="disabled")
         acciones_menu.entryconfig("Calificar sesión", state="normal")
 
 # --------------------------
@@ -612,6 +797,7 @@ acciones_menu.add_command(label="Programar sesión", command=programar_sesion)
 acciones_menu.add_separator()
 acciones_menu.add_command(label="Simular entrenamiento", command=simular_entrenamiento)
 acciones_menu.add_command(label="Calificar sesión", command=calificar_sesion)
+acciones_menu.add_command(label="Eliminar usuario", command=eliminar_usuario)
 acciones_menu.add_separator()
 acciones_menu.add_command(label="Listar usuarios", command=listar_usuarios)
 acciones_menu.add_command(label="Listar sesiones", command=listar_sesiones)
