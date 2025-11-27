@@ -381,7 +381,6 @@ def mostrar_dashboard():
     if current_user:
         lb_output.delete(0, tk.END)
         current_user.mostrar_dashboard()
-        # Para capturar la salida en la interfaz, necesitaríamos redirigir stdout
         # Por ahora mostramos información básica
         if isinstance(current_user, Cliente):
             sesiones_cliente = len([s for s in sesiones if s._SesionEntrenamiento__cliente.id == current_user.id])
@@ -431,7 +430,7 @@ def ajustar_menu_por_rol():
 # --------------------------
 
 root = tk.Tk()
-root.title("Sistema de Fitness - Interfaz gráfica")
+root.title("Fit Coach Pro - Interfaz gráfica")
 root.geometry("800x600")
 root.minsize(700, 500)
 
@@ -454,10 +453,10 @@ acciones_menu.add_command(label="Listar sesiones", command=listar_sesiones)
 acciones_menu.add_command(label="Listar planes", command=listar_planes)
 menubar.add_cascade(label="Acciones", menu=acciones_menu)
 
-# Menú "Archivo" con Salir
+# Menú "Opciones" con Salir
 archivo_menu = tk.Menu(menubar, tearoff=0)
 archivo_menu.add_command(label="Salir", command=salir)
-menubar.add_cascade(label="Archivo", menu=archivo_menu)
+menubar.add_cascade(label="Opciones", menu=archivo_menu)
 
 root.config(menu=menubar)
 
@@ -465,7 +464,7 @@ root.config(menu=menubar)
 frame_output = ttk.Frame(root, padding=(12, 12))
 frame_output.pack(side=tk.TOP, expand=True, fill=tk.BOTH)
 
-lbl_output = ttk.Label(frame_output, text="Salida del Sistema", font=("Segoe UI", 12, "bold"))
+lbl_output = ttk.Label(frame_output, text=f"BIENVENIDO A FIT COACH PRO", font=("Segoe UI", 12, "bold"))
 lbl_output.pack(anchor="w")
 
 # Listbox con scrollbar para mostrar resultados
