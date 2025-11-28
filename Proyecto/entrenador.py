@@ -102,6 +102,60 @@ class Entrenador(Usuario):
             cursor.close()
             conn.close()
 
+    def actualizar_nivel_cliente(self, cliente_id, nuevo_nivel):
+        """Actualizar el nivel de fitness de un cliente"""
+        from cliente import Cliente
+        
+        # Verificar que el cliente existe
+        cliente = Cliente.buscar_por_id(cliente_id)
+        if not cliente:
+            raise ValueError("Cliente no encontrado")
+        
+        # Niveles válidos
+        niveles_validos = ["Principiante", "Intermedio", "Avanzado", "Experto"]
+        if nuevo_nivel not in niveles_validos:
+            raise ValueError(f"Nivel inválido. Debe ser uno de: {', '.join(niveles_validos)}")
+        
+        # Actualizar en la base de datos
+        conn = create_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE cliente SET nivel_fitness = %s WHERE id_usuario = %s",
+                (nuevo_nivel, cliente_id)
+            )
+            conn.commit()
+            
+            # Actualizar el objeto cliente
+            cliente.nivel_fitness = nuevo_nivel
+            return cliente
+            
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cursor.close()
+            conn.close()
+
+    def obtener_clientes_entrenados(self):
+        """Obtener lista de clientes que ha entrenado este entrenador"""
+        from cliente import Cliente
+        from sesion_entrenamiento import SesionEntrenamiento
+        
+        # Obtener sesiones donde este entrenador ha trabajado
+        sesiones = self.obtener_sesiones()
+        
+        # Obtener clientes únicos de esas sesiones
+        clientes_ids = set(sesion.cliente.id for sesion in sesiones)
+        clientes_entrenados = []
+        
+        for cliente_id in clientes_ids:
+            cliente = Cliente.buscar_por_id(cliente_id)
+            if cliente:
+                clientes_entrenados.append(cliente)
+        
+        return clientes_entrenados
+
     def mostrar_dashboard(self):
         """Mostrar dashboard del entrenador"""
         planes = self.obtener_planes()

@@ -15,7 +15,7 @@ from ejercicio import Ejercicio
 current_user = None  # objeto Usuario autenticado (Cliente o Entrenador)
 
 # --------------------------
-# Funciones de la aplicación (ACTUALIZADAS PARA BD)
+# Funciones de la aplicación 
 # --------------------------
 
 def login_inicial():
@@ -23,7 +23,7 @@ def login_inicial():
     global current_user
 
     # Preguntar si el usuario ya tiene cuenta
-    tiene = messagebox.askyesno("Bienvenido al Sistema de Fitness", "¿Tienes una cuenta en el sistema?")
+    tiene = messagebox.askyesno("Bienvenido a Fit Coach Pro", "¿Tienes una cuenta en el sistema?")
     if tiene is None:
         salir()
         return
@@ -36,7 +36,7 @@ def login_inicial():
                 current_user = u
                 lbl_help.config(text=f"Usuario conectado: {current_user.nombre} ({type(current_user).__name__})")
                 ajustar_menu_por_rol()
-                listar_sesiones()
+                mostrar_dashboard()
                 return
             else:
                 messagebox.showinfo("Info", "Registro cancelado. Se solicitará inicio de sesión.")
@@ -68,7 +68,7 @@ def login_inicial():
                 current_user = usuario
                 lbl_help.config(text=f"Usuario conectado: {current_user.nombre} ({type(current_user).__name__})")
                 ajustar_menu_por_rol()
-                listar_sesiones()
+                mostrar_dashboard()
                 return
             else:
                 if intento < 2:
@@ -82,7 +82,7 @@ def login_inicial():
                                     current_user = u
                                     lbl_help.config(text=f"Usuario conectado: {current_user.nombre} ({type(current_user).__name__})")
                                     ajustar_menu_por_rol()
-                                    listar_sesiones()
+                                    mostrar_dashboard()
                                     return
                             except Exception as e:
                                 messagebox.showerror("Error", f"Error durante el registro:\n{e}")
@@ -176,7 +176,7 @@ def crear_plan_entrenamiento():
 
 @requiere_entrenador
 def agregar_ejercicio_plan():
-    """Agregar ejercicio a un plan existente."""
+    """Agregar ejercicio a un plan existente - permite seleccionar existentes o crear nuevos."""
     try:
         # Cargar planes del entrenador actual
         planes = current_user.obtener_planes()
@@ -197,53 +197,115 @@ def agregar_ejercicio_plan():
             messagebox.showwarning("Error", "Plan no encontrado.")
             return
         
-        # Crear ejercicio
-        tipo_ejercicio = simpledialog.askstring("Tipo de Ejercicio", "Tipo (fuerza/cardio):", initialvalue="fuerza")
-        if not tipo_ejercicio:
-            return
+        # Preguntar si quiere usar ejercicio existente o crear nuevo
+        opcion = messagebox.askyesno(
+            "Seleccionar Ejercicio",
+            f"Plan seleccionado: {plan.nombre}\n\n"
+            f"¿Deseas seleccionar un ejercicio existente?\n\n"
+            f"• Sí = Elegir de la lista de ejercicios\n"
+            f"• No = Crear un nuevo ejercicio"
+        )
         
-        nombre = simpledialog.askstring("Ejercicio", "Nombre del ejercicio:")
-        if not nombre:
-            return
-        descripcion = simpledialog.askstring("Ejercicio", "Descripción:", initialvalue="")
-        
-        try:
-            if tipo_ejercicio.lower() == 'fuerza':
-                repeticiones = simpledialog.askinteger("Ejercicio Fuerza", "Repeticiones:", initialvalue=10)
-                series = simpledialog.askinteger("Ejercicio Fuerza", "Series:", initialvalue=4)
-                peso = simpledialog.askfloat("Ejercicio Fuerza", "Peso (kg):", initialvalue=50.0)
-                
-                ejercicio = EjercicioFuerza.crear(
-                    nombre.strip(), 
-                    descripcion.strip(), 
-                    repeticiones, 
-                    series, 
-                    peso
+        if opcion:
+            # SELECCIONAR EJERCICIO EXISTENTE
+            ejercicios_existentes = Ejercicio.listar_todos()
+            
+            if not ejercicios_existentes:
+                messagebox.showwarning("Advertencia", "No hay ejercicios disponibles en el sistema.")
+                return
+            
+            # Mostrar lista de ejercicios
+            lista_ejercicios = [f"{ejercicio.nombre} ({ejercicio.tipo}) - {ejercicio.descripcion}" 
+                               for ejercicio in ejercicios_existentes]
+            
+            ejercicio_seleccionado = simpledialog.askstring(
+                "Seleccionar Ejercicio Existente",
+                f"Ejercicios disponibles:\n" + "\n".join(lista_ejercicios) + 
+                "\n\nIngrese el nombre exacto del ejercicio:"
+            )
+            
+            if not ejercicio_seleccionado:
+                return
+            
+            # Buscar el ejercicio
+            ejercicio = Ejercicio.buscar_por_nombre(ejercicio_seleccionado.strip())
+            if not ejercicio:
+                messagebox.showwarning("Error", "Ejercicio no encontrado.")
+                return
+            
+            # Verificar si el ejercicio ya está en el plan
+            ejercicios_plan = [e.nombre for e in plan.ejercicios]
+            if ejercicio.nombre in ejercicios_plan:
+                messagebox.showwarning("Advertencia", f"El ejercicio '{ejercicio.nombre}' ya está en el plan.")
+                return
+            
+        else:
+            # CREAR NUEVO EJERCICIO
+            tipo_ejercicio = simpledialog.askstring("Tipo de Ejercicio", "Tipo (fuerza/cardio):", initialvalue="fuerza")
+            if not tipo_ejercicio:
+                return
+            
+            nombre = simpledialog.askstring("Nuevo Ejercicio", "Nombre del ejercicio:")
+            if not nombre:
+                return
+            
+            descripcion = simpledialog.askstring("Nuevo Ejercicio", "Descripción:", initialvalue="")
+            
+            # Verificar si ya existe un ejercicio con ese nombre
+            ejercicio_existente = Ejercicio.buscar_por_nombre(nombre.strip())
+            if ejercicio_existente:
+                usar_existente = messagebox.askyesno(
+                    "Ejercicio Existente",
+                    f"Ya existe un ejercicio con el nombre '{nombre}'.\n\n"
+                    f"¿Deseas usar el ejercicio existente en lugar de crear uno nuevo?"
                 )
+                if usar_existente:
+                    ejercicio = ejercicio_existente
+                else:
+                    messagebox.showinfo("Cancelado", "Por favor, usa un nombre diferente.")
+                    return
             else:
-                duracion = simpledialog.askinteger("Ejercicio Cardio", "Duración (minutos):", initialvalue=20)
-                tipo_cardio = simpledialog.askstring("Ejercicio Cardio", "Tipo de cardio:", initialvalue="CORRER")
-                
-                ejercicio = EjercicioCardio.crear(
-                    nombre.strip(), 
-                    descripcion.strip(), 
-                    duracion, 
-                    tipo_cardio.strip()
-                )
-            
-            # Agregar ejercicio al plan
-            plan.agregar_ejercicio(ejercicio)
-            messagebox.showinfo("OK", f"Ejercicio '{ejercicio.nombre}' agregado al plan '{plan.nombre}'")
-            listar_planes()
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al crear ejercicio:\n{e}")
-            
+                # Crear nuevo ejercicio
+                if tipo_ejercicio.lower() == 'fuerza':
+                    repeticiones = simpledialog.askinteger("Ejercicio Fuerza", "Repeticiones:", initialvalue=10)
+                    series = simpledialog.askinteger("Ejercicio Fuerza", "Series:", initialvalue=4)
+                    peso = simpledialog.askfloat("Ejercicio Fuerza", "Peso (kg):", initialvalue=50.0)
+                    
+                    ejercicio = EjercicioFuerza.crear(
+                        nombre.strip(), 
+                        descripcion.strip(), 
+                        repeticiones, 
+                        series, 
+                        peso
+                    )
+                else:
+                    duracion = simpledialog.askinteger("Ejercicio Cardio", "Duración (minutos):", initialvalue=20)
+                    tipo_cardio = simpledialog.askstring("Ejercicio Cardio", "Tipo de cardio:", initialvalue="CORRER")
+                    
+                    ejercicio = EjercicioCardio.crear(
+                        nombre.strip(), 
+                        descripcion.strip(), 
+                        duracion, 
+                        tipo_cardio.strip()
+                    )
+        
+        # Agregar ejercicio al plan
+        plan.agregar_ejercicio(ejercicio)
+        
+        messagebox.showinfo("Éxito", 
+                          f"Ejercicio agregado al plan:\n\n"
+                          f"Plan: {plan.nombre}\n"
+                          f"Ejercicio: {ejercicio.nombre}\n"
+                          f"Tipo: {ejercicio.tipo}\n"
+                          f"Descripción: {ejercicio.descripcion}")
+        
+        listar_planes()
+        
     except Exception as e:
         messagebox.showerror("Error", f"Error al agregar ejercicio:\n{e}")
 
 def programar_sesion():
-    """Programar una sesión de entrenamiento - Ahora disponible para clientes y entrenadores."""
+    """Programar una sesión de entrenamiento"""
     try:
         # Determinar quién está programando la sesión
         if isinstance(current_user, Entrenador):
@@ -344,7 +406,7 @@ def programar_sesion():
         
         # Solicitar fecha y hora de la sesión
         fecha_str = simpledialog.askstring("Fecha de la Sesión", 
-                                         "Ingrese fecha y hora (YYYY-MM-DD HH:MM):\nEjemplo: 2024-01-15 14:30", 
+                                         "Ingrese fecha y hora:\nEjemplo: 2024-01-15 14:30", 
                                          initialvalue=datetime.now().strftime("%Y-%m-%d %H:%M"))
         if not fecha_str:
             return
@@ -741,6 +803,65 @@ def eliminar_usuario():
     except Exception as e:
         messagebox.showerror("Error", f"Error al procesar la eliminación:\n{e}")
 
+@requiere_entrenador
+def actualizar_nivel_cliente():
+    """Permite a un entrenador actualizar el nivel de fitness de un cliente."""
+    try:
+        # Obtener clientes que ha entrenado este entrenador
+        clientes = current_user.obtener_clientes_entrenados()
+        
+        if not clientes:
+            messagebox.showwarning("Advertencia", "No tienes clientes asignados.")
+            return
+        
+        # Mostrar lista de clientes
+        lista_clientes = [f"ID: {cliente.id} | {cliente.nombre} - Nivel actual: {cliente.nivel_fitness}" 
+                         for cliente in clientes]
+        
+        cliente_info = simpledialog.askstring("Actualizar Nivel de Cliente", 
+                                            f"Tus clientes:\n" + "\n".join(lista_clientes) + 
+                                            "\n\nIngrese ID del cliente:")
+        if not cliente_info:
+            return
+        
+        try:
+            cliente_id = int(cliente_info)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        # Verificar que el cliente existe y es entrenado por este entrenador
+        cliente = next((c for c in clientes if c.id == cliente_id), None)
+        if not cliente:
+            messagebox.showwarning("Error", "Cliente no encontrado o no es entrenado por ti.")
+            return
+        
+        # Mostrar niveles disponibles
+        niveles = ["Principiante", "Intermedio", "Avanzado", "Experto"]
+        nivel_seleccionado = simpledialog.askstring("Seleccionar Nuevo Nivel", 
+                                                  f"Cliente: {cliente.nombre}\n"
+                                                  f"Nivel actual: {cliente.nivel_fitness}\n\n"
+                                                  f"Niveles disponibles: {', '.join(niveles)}\n"
+                                                  f"Ingrese el nuevo nivel:")
+        if not nivel_seleccionado:
+            return
+        
+        nivel_seleccionado = nivel_seleccionado.strip().capitalize()
+        if nivel_seleccionado not in niveles:
+            messagebox.showerror("Error", f"Nivel inválido. Debe ser uno de: {', '.join(niveles)}")
+            return
+        
+        # Actualizar el nivel
+        cliente_actualizado = current_user.actualizar_nivel_cliente(cliente_id, nivel_seleccionado)
+        
+        messagebox.showinfo("Éxito", 
+                          f"Nivel actualizado correctamente:\n\n"
+                          f"Cliente: {cliente_actualizado.nombre}\n"
+                          f"Nuevo nivel: {cliente_actualizado.nivel_fitness}")
+        
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al actualizar nivel del cliente:\n{e}")
+
 def salir():
     root.destroy()
     sys.exit(0)
@@ -755,7 +876,6 @@ def ajustar_menu_por_rol():
 
     # Habilitar opciones comunes
     acciones_menu.entryconfig("Mostrar dashboard", state="normal")
-    acciones_menu.entryconfig("Listar usuarios", state="normal")
     acciones_menu.entryconfig("Listar sesiones", state="normal")
     acciones_menu.entryconfig("Listar planes", state="normal")
 
@@ -765,15 +885,21 @@ def ajustar_menu_por_rol():
         acciones_menu.entryconfig("Agregar ejercicio a plan", state="normal")
         acciones_menu.entryconfig("Programar sesión", state="normal")
         acciones_menu.entryconfig("Simular entrenamiento", state="normal")
+        acciones_menu.entryconfig("Actualizar nivel cliente", state="normal")
         acciones_menu.entryconfig("Eliminar usuario", state="normal")
         acciones_menu.entryconfig("Calificar sesión", state="disabled")
+        acciones_menu.entryconfig("Listar usuarios", state="normal")
+        opciones_menu.entryconfig("Agregar usuario", state="normal")
     elif isinstance(current_user, Cliente):
         acciones_menu.entryconfig("Crear plan entrenamiento", state="disabled")
         acciones_menu.entryconfig("Agregar ejercicio a plan", state="disabled")
         acciones_menu.entryconfig("Programar sesión", state="normal")
         acciones_menu.entryconfig("Simular entrenamiento", state="disabled")
+        acciones_menu.entryconfig("Actualizar nivel cliente", state="disabled")
         acciones_menu.entryconfig("Eliminar usuario", state="disabled")
         acciones_menu.entryconfig("Calificar sesión", state="normal")
+        acciones_menu.entryconfig("Listar usuarios", state="disabled")
+        opciones_menu.entryconfig("Agregar usuario", state="disabled")
 
 # --------------------------
 # Interfaz gráfica
@@ -781,8 +907,9 @@ def ajustar_menu_por_rol():
 
 root = tk.Tk()
 root.title("Fit Coach Pro - Interfaz gráfica")
-root.geometry("800x600")
+root.geometry("600x400")
 root.minsize(700, 500)
+
 
 # Menú principal
 menubar = tk.Menu(root)
@@ -798,24 +925,26 @@ acciones_menu.add_separator()
 acciones_menu.add_command(label="Simular entrenamiento", command=simular_entrenamiento)
 acciones_menu.add_command(label="Calificar sesión", command=calificar_sesion)
 acciones_menu.add_command(label="Eliminar usuario", command=eliminar_usuario)
+acciones_menu.add_command(label="Actualizar nivel cliente", command=actualizar_nivel_cliente)
 acciones_menu.add_separator()
 acciones_menu.add_command(label="Listar usuarios", command=listar_usuarios)
 acciones_menu.add_command(label="Listar sesiones", command=listar_sesiones)
 acciones_menu.add_command(label="Listar planes", command=listar_planes)
-menubar.add_cascade(label="Acciones", menu=acciones_menu)
+menubar.add_cascade(label="¿Qué quieres hacer hoy?", menu=acciones_menu)
 
 # Menú "Opciones" con Salir
-archivo_menu = tk.Menu(menubar, tearoff=0)
-archivo_menu.add_command(label="Salir", command=salir)
-menubar.add_cascade(label="Opciones", menu=archivo_menu)
+opciones_menu = tk.Menu(menubar, tearoff=0)
+opciones_menu.add_command(label="Agregar usuario", command=registrar_usuario_publico)
+opciones_menu.add_command(label="Salir", command=salir)
+menubar.add_cascade(label="Opciones", menu=opciones_menu)
 
-root.config(menu=menubar)
+root.config(menu=menubar, bg="black")
 
 # Frame principal para salida / resultados
-frame_output = ttk.Frame(root, padding=(12, 12))
+frame_output = tk.Frame(root, bg="#7D3C98", padx=12, pady=12)
 frame_output.pack(side=tk.TOP, expand=True, fill=tk.BOTH)
 
-lbl_output = ttk.Label(frame_output, text="Bienvenido a FIT COACH PRO", font=("Segoe UI", 12, "bold"))
+lbl_output = tk.Label(frame_output, text="Bienvenido a FIT COACH PRO", font=("Segoe UI", 12, "normal"), bg="#7D3C98", fg="white")
 lbl_output.pack(anchor="w")
 
 # Listbox con scrollbar para mostrar resultados
@@ -823,16 +952,16 @@ frame_list = ttk.Frame(frame_output)
 frame_list.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
 
 sb = ttk.Scrollbar(frame_list, orient=tk.VERTICAL)
-lb_output = tk.Listbox(frame_list, yscrollcommand=sb.set, font=("Consolas", 10))
+lb_output = tk.Listbox(frame_list, yscrollcommand=sb.set, font=("Consolas", 10), bg="#ccff33")
 sb.config(command=lb_output.yview)
 sb.pack(side=tk.RIGHT, fill=tk.Y)
 lb_output.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
 # Mensaje de ayuda inferior
-lbl_help = ttk.Label(frame_output, text="Iniciando sistema de fitness...", font=("Segoe UI", 9))
+lbl_help = tk.Label(frame_output, text="Iniciando sistema espere un poco pliiiis...", font=("Segoe UI", 9),bg="#7D3C98")
 lbl_help.pack(anchor="w", pady=(8, 0))
 
-# Al iniciar, pedir login directamente (ya no creamos datos de prueba)
+# Al iniciar, pedir login directamente 
 root.after(100, login_inicial)
 
 root.mainloop()

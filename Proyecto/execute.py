@@ -1,71 +1,1129 @@
+import sys
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
 from datetime import datetime
 
-# Importamos nuestras clases (asumiendo que cada una está en su archivo .py)
 from cliente import Cliente
 from entrenador import Entrenador
 from ejercicio_fuerza import EjercicioFuerza
 from ejercicio_cardio import EjercicioCardio
 from sesion_entrenamiento import SesionEntrenamiento
+from plan_entrenamiento import PlanEntrenamiento
+from ejercicio import Ejercicio
 
-def ejecutar_sistema():
-    print("=== INICIANDO SISTEMA DE FITNESS ===\n")
+# Variables globales
+current_user = None  # objeto Usuario autenticado (Cliente o Entrenador)
 
-    # 1. CREACIÓN DE ACTORES (Usuarios)
-    # Instanciamos un Entrenador
-    entrenador_juan = Entrenador("E001", "Juan Pérez", "juan@gym.com", "Hipertrofia", 5)
+# --------------------------
+# Funciones de la aplicación 
+# --------------------------
+
+def login_inicial():
+    """Solicita credenciales al iniciar la aplicación."""
+    global current_user
+
+    # Preguntar si el usuario ya tiene cuenta
+    tiene = messagebox.askyesno("Bienvenido al Sistema de Fitness", "¿Tienes una cuenta en el sistema?")
+    if tiene is None:
+        salir()
+        return
+
+    if not tiene:
+        # Permitir registro público
+        try:
+            u = registrar_usuario_publico()
+            if u:
+                current_user = u
+                lbl_help.config(text=f"Usuario conectado: {current_user.nombre} ({type(current_user).__name__})")
+                ajustar_menu_por_rol()
+                mostrar_dashboard()
+                return
+            else:
+                messagebox.showinfo("Info", "Registro cancelado. Se solicitará inicio de sesión.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error durante el registro:\n{e}")
+
+    # Intentar iniciar sesión (3 intentos)
+    for intento in range(3):
+        user_id_str = simpledialog.askstring("Inicio de sesión", "ID de usuario (número):")
+        if user_id_str is None:
+            salir()
+            return
+        
+        try:
+            user_id = int(user_id_str)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            continue
+        
+        # Buscar usuario en la base de datos
+        try:
+            # Buscar como cliente
+            usuario = Cliente.buscar_por_id(user_id)
+            if not usuario:
+                # Buscar como entrenador
+                usuario = Entrenador.buscar_por_id(user_id)
+            
+            if usuario:
+                current_user = usuario
+                lbl_help.config(text=f"Usuario conectado: {current_user.nombre} ({type(current_user).__name__})")
+                ajustar_menu_por_rol()
+                listar_sesiones()
+                return
+            else:
+                if intento < 2:
+                    retry = messagebox.askretrycancel("Error", "Usuario no encontrado. ¿Deseas intentar de nuevo?")
+                    if not retry:
+                        want_reg = messagebox.askyesno("Registro", "¿Deseas registrarte ahora?")
+                        if want_reg:
+                            try:
+                                u = registrar_usuario_publico()
+                                if u:
+                                    current_user = u
+                                    lbl_help.config(text=f"Usuario conectado: {current_user.nombre} ({type(current_user).__name__})")
+                                    ajustar_menu_por_rol()
+                                    listar_sesiones()
+                                    return
+                            except Exception as e:
+                                messagebox.showerror("Error", f"Error durante el registro:\n{e}")
+                else:
+                    messagebox.showerror("Error", "Demasiados intentos fallidos. Saliendo.")
+                    salir()
+                    
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al buscar usuario:\n{e}")
+
+def registrar_usuario_publico():
+    """Permite registrar un usuario desde la pantalla de inicio."""
+    tipo = simpledialog.askstring("Registrar usuario", "Tipo (cliente/entrenador):", initialvalue="cliente")
+    if not tipo:
+        return None
     
-    # Instanciamos un Cliente
-    cliente_pedro = Cliente("C001", "Pedro López", "pedro@mail.com", "Principiante")
-
-    # Demostración de Polimorfismo: Ambos usan mostrar_dashboard() pero se ve diferente
-    entrenador_juan.mostrar_dashboard()
-    print("-" * 30)
-    cliente_pedro.mostrar_dashboard()
-    print("\n")
-
-    # 2. EL ENTRENADOR CREA UN PLAN
-    print(f"--- El entrenador {entrenador_juan.nombre} está diseñando un plan ---")
-    plan_volumen = entrenador_juan.crear_plan("Volumen Extremo", "Ganancia muscular máxima")
-
-    # 3. CREACIÓN DE EJERCICIOS
-    # Creamos un ejercicio de fuerza
-    press_banca = EjercicioFuerza("Press de Banca", "Empuje horizontal con barra", 10, 4, 60.5)
+    tipo = tipo.strip().lower()
+    if tipo not in ('cliente', 'entrenador'):
+        messagebox.showwarning("Tipo inválido", "Tipo inválido. Se usará 'cliente'.")
+        tipo = 'cliente'
     
-    # Creamos un ejercicio de cardio
-    cinta_correr = EjercicioCardio("Cinta", "Running suave", 20, "CORRER")
-    # Usamos el setter para ajustar el ritmo cardiaco
-    cinta_correr.duracion_minutos = 25 
-
-    # 4. AGREGAMOS EJERCICIOS AL PLAN (Agregación)
-    plan_volumen.agregar_ejercicio(press_banca)
-    plan_volumen.agregar_ejercicio(cinta_correr)
-    print(f"Plan '{plan_volumen.nombre}' creado con {len(plan_volumen.ejercicios)} ejercicios.\n")
-
-    # 5. PROGRAMAR UNA SESIÓN (Asociación)
-    print("--- Programando Sesión de Entrenamiento ---")
-    fecha_hoy = datetime.now()
-    sesion_1 = SesionEntrenamiento("S100", fecha_hoy, cliente_pedro, entrenador_juan, plan_volumen)
+    nombre = simpledialog.askstring("Registrar usuario", "Nombre completo:")
+    if not nombre:
+        return None
     
-    sesion_1.mostrar_info_participantes()
-    print(f"Estado inicial: {sesion_1._SesionEntrenamiento__estado}") # Acceso un poco 'trucado' para ver el privado o usamos un getter si lo creaste
+    email = simpledialog.askstring("Registrar usuario", "Email:")
+    if not email:
+        return None
 
-    # 6. SIMULAR LA EJECUCIÓN
-    print("\n... Entrenando ...")
-    sesion_1.cambiar_estado("FINALIZADA")
+    try:
+        if tipo == 'cliente':
+            nivel = simpledialog.askstring("Registrar cliente", "Nivel de fitness:", initialvalue="Principiante")
+            usuario = Cliente.crear(
+                nombre.strip(), 
+                email.strip(), 
+                nivel.strip() if nivel else "Principiante"
+            )
+        else:
+            especialidad = simpledialog.askstring("Registrar entrenador", "Especialidad:", initialvalue="General")
+            experiencia = simpledialog.askinteger("Registrar entrenador", "Años de experiencia:", initialvalue=1)
+            usuario = Entrenador.crear(
+                nombre.strip(), 
+                email.strip(),
+                especialidad.strip() if especialidad else "General", 
+                experiencia if experiencia else 1
+            )
+        
+        messagebox.showinfo("OK", f"Usuario registrado: {usuario.nombre} (id={usuario.id})")
+        return usuario
+        
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al registrar usuario:\n{e}")
+        return None
 
-    # 7. EL CLIENTE CALIFICA Y GUARDA EN HISTORIAL
-    print("--- Finalizando y Calificando ---")
-    # Intento de calificación inválida
-    cliente_pedro.calificar_sesion(sesion_1, 10) 
-    # Calificación válida
-    cliente_pedro.calificar_sesion(sesion_1, 5)
+def requiere_entrenador(func):
+    """Decorador para funciones que requieren rol Entrenador."""
+    def wrapper(*args, **kwargs):
+        if current_user is None or not isinstance(current_user, Entrenador):
+            messagebox.showerror("Permisos", "Acción restringida: se requiere usuario Entrenador.")
+            return
+        return func(*args, **kwargs)
+    return wrapper
 
-    # Guardar en el historial del cliente
-    cliente_pedro.agregar_sesion_historial(sesion_1)
+def requiere_cliente(func):
+    """Decorador para funciones que requieren rol Cliente."""
+    def wrapper(*args, **kwargs):
+        if current_user is None or not isinstance(current_user, Cliente):
+            messagebox.showerror("Permisos", "Acción restringida: se requiere usuario Cliente.")
+            return
+        return func(*args, **kwargs)
+    return wrapper
 
-    print("\n--- Verificando Dashboard del Cliente Actualizado ---")
-    cliente_pedro.mostrar_dashboard()
+# --- Funciones del sistema ---
 
-# Esta condición asegura que esto sea lo primero que se ejecute
-if __name__ == "__main__":
-    ejecutar_sistema()
+@requiere_entrenador
+def crear_plan_entrenamiento():
+    """Permite a un entrenador crear un plan de entrenamiento."""
+    nombre = simpledialog.askstring("Crear Plan", "Nombre del plan:")
+    if not nombre:
+        return
+    objetivo = simpledialog.askstring("Crear Plan", "Objetivo del plan:")
+    if not objetivo:
+        return
+    
+    try:
+        plan = current_user.crear_plan(nombre.strip(), objetivo.strip())
+        messagebox.showinfo("OK", f"Plan creado: {plan.nombre}")
+        listar_planes()
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al crear plan:\n{e}")
+
+@requiere_entrenador
+def agregar_ejercicio_plan():
+    """Agregar ejercicio a un plan existente."""
+    try:
+        # Cargar planes del entrenador actual
+        planes = current_user.obtener_planes()
+        
+        if not planes:
+            messagebox.showwarning("Advertencia", "No hay planes creados.")
+            return
+        
+        # Seleccionar plan
+        plan_nombres = [plan.nombre for plan in planes]
+        plan_seleccionado = simpledialog.askstring("Seleccionar Plan", 
+                                                 f"Planes disponibles: {', '.join(plan_nombres)}\nIngrese el nombre:")
+        if not plan_seleccionado:
+            return
+        
+        plan = next((p for p in planes if p.nombre == plan_seleccionado.strip()), None)
+        if not plan:
+            messagebox.showwarning("Error", "Plan no encontrado.")
+            return
+        
+        # Crear ejercicio
+        tipo_ejercicio = simpledialog.askstring("Tipo de Ejercicio", "Tipo (fuerza/cardio):", initialvalue="fuerza")
+        if not tipo_ejercicio:
+            return
+        
+        nombre = simpledialog.askstring("Ejercicio", "Nombre del ejercicio:")
+        if not nombre:
+            return
+        descripcion = simpledialog.askstring("Ejercicio", "Descripción:", initialvalue="")
+        
+        try:
+            if tipo_ejercicio.lower() == 'fuerza':
+                repeticiones = simpledialog.askinteger("Ejercicio Fuerza", "Repeticiones:", initialvalue=10)
+                series = simpledialog.askinteger("Ejercicio Fuerza", "Series:", initialvalue=4)
+                peso = simpledialog.askfloat("Ejercicio Fuerza", "Peso (kg):", initialvalue=50.0)
+                
+                ejercicio = EjercicioFuerza.crear(
+                    nombre.strip(), 
+                    descripcion.strip(), 
+                    repeticiones, 
+                    series, 
+                    peso
+                )
+            else:
+                duracion = simpledialog.askinteger("Ejercicio Cardio", "Duración (minutos):", initialvalue=20)
+                tipo_cardio = simpledialog.askstring("Ejercicio Cardio", "Tipo de cardio:", initialvalue="CORRER")
+                
+                ejercicio = EjercicioCardio.crear(
+                    nombre.strip(), 
+                    descripcion.strip(), 
+                    duracion, 
+                    tipo_cardio.strip()
+                )
+            
+            # Agregar ejercicio al plan
+            plan.agregar_ejercicio(ejercicio)
+            messagebox.showinfo("OK", f"Ejercicio '{ejercicio.nombre}' agregado al plan '{plan.nombre}'")
+            listar_planes()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al crear ejercicio:\n{e}")
+            
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al agregar ejercicio:\n{e}")
+
+def programar_sesion():
+    """Programar una sesión de entrenamiento - Ahora disponible para clientes y entrenadores."""
+    try:
+        # Determinar quién está programando la sesión
+        if isinstance(current_user, Entrenador):
+            # Entrenador programando sesión - busca cliente
+            clientes = Cliente.listar_todos()
+            planes = current_user.obtener_planes()
+            
+            if not planes:
+                messagebox.showwarning("Advertencia", "No tienes planes creados. Crea un plan primero.")
+                return
+            if not clientes:
+                messagebox.showwarning("Advertencia", "No hay clientes registrados en el sistema.")
+                return
+            
+            # Seleccionar cliente
+            cliente_nombres = [f"{cliente.nombre} (ID: {cliente.id})" for cliente in clientes]
+            cliente_info = simpledialog.askstring("Programar Sesión - Seleccionar Cliente", 
+                                                f"Clientes disponibles:\n" + "\n".join(cliente_nombres) + "\n\nIngrese ID del cliente:")
+            if not cliente_info:
+                return
+            
+            try:
+                cliente_id = int(cliente_info)
+                cliente = Cliente.buscar_por_id(cliente_id)
+            except ValueError:
+                messagebox.showerror("Error", "ID debe ser un número")
+                return
+            
+            if not cliente:
+                messagebox.showwarning("Error", "Cliente no encontrado.")
+                return
+            
+            # Seleccionar plan del entrenador
+            plan_nombres = [plan.nombre for plan in planes]
+            plan_seleccionado = simpledialog.askstring("Seleccionar Plan", 
+                                                     f"Tus planes disponibles: {', '.join(plan_nombres)}\nIngrese el nombre del plan:")
+            if not plan_seleccionado:
+                return
+            
+            plan = next((p for p in planes if p.nombre == plan_seleccionado.strip()), None)
+            if not plan:
+                messagebox.showwarning("Error", "Plan no encontrado.")
+                return
+            
+            # Entrenador programa sesión para cliente
+            entrenador_id = current_user.id
+            cliente_id = cliente.id
+            
+        else:  # Cliente programando sesión - busca entrenador
+            entrenadores = Entrenador.listar_todos()
+            planes_disponibles = PlanEntrenamiento.listar_todos()  # Todos los planes del sistema
+            
+            if not entrenadores:
+                messagebox.showwarning("Advertencia", "No hay entrenadores registrados en el sistema.")
+                return
+            
+            # Seleccionar entrenador
+            entrenador_nombres = [f"{entrenador.nombre} (ID: {entrenador.id}) - {entrenador.especialidad}" 
+                                 for entrenador in entrenadores]
+            entrenador_info = simpledialog.askstring("Programar Sesión - Seleccionar Entrenador", 
+                                                   f"Entrenadores disponibles:\n" + "\n".join(entrenador_nombres) + "\n\nIngrese ID del entrenador:")
+            if not entrenador_info:
+                return
+            
+            try:
+                entrenador_id = int(entrenador_info)
+                entrenador = Entrenador.buscar_por_id(entrenador_id)
+            except ValueError:
+                messagebox.showerror("Error", "ID debe ser un número")
+                return
+            
+            if not entrenador:
+                messagebox.showwarning("Error", "Entrenador no encontrado.")
+                return
+            
+            # Filtrar planes del entrenador seleccionado
+            planes_entrenador = [p for p in planes_disponibles if p.id_entrenador == entrenador_id]
+            
+            if not planes_entrenador:
+                messagebox.showwarning("Error", f"El entrenador {entrenador.nombre} no tiene planes creados.")
+                return
+            
+            # Seleccionar plan del entrenador
+            plan_nombres = [plan.nombre for plan in planes_entrenador]
+            plan_seleccionado = simpledialog.askstring("Seleccionar Plan", 
+                                                     f"Planes disponibles de {entrenador.nombre}: {', '.join(plan_nombres)}\nIngrese el nombre del plan:")
+            if not plan_seleccionado:
+                return
+            
+            plan = next((p for p in planes_entrenador if p.nombre == plan_seleccionado.strip()), None)
+            if not plan:
+                messagebox.showwarning("Error", "Plan no encontrado.")
+                return
+            
+            # Cliente programa sesión con entrenador
+            cliente_id = current_user.id
+            entrenador_id = entrenador.id
+        
+        # Solicitar fecha y hora de la sesión
+        fecha_str = simpledialog.askstring("Fecha de la Sesión", 
+                                         "Ingrese fecha y hora (YYYY-MM-DD HH:MM):\nEjemplo: 2024-01-15 14:30", 
+                                         initialvalue=datetime.now().strftime("%Y-%m-%d %H:%M"))
+        if not fecha_str:
+            return
+        
+        try:
+            fecha_hora = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M")
+            
+            # Verificar que la fecha no sea en el pasado
+            if fecha_hora < datetime.now():
+                messagebox.showwarning("Error", "No puedes programar sesiones en el pasado.")
+                return
+                
+        except ValueError:
+            messagebox.showerror("Error", "Formato de fecha incorrecto. Use: YYYY-MM-DD HH:MM")
+            return
+        
+        # Crear la sesión
+        sesion = SesionEntrenamiento.crear(
+            fecha_hora, 
+            cliente_id, 
+            entrenador_id, 
+            plan.id_plan
+        )
+        
+        # Mensaje de confirmación personalizado
+        if isinstance(current_user, Entrenador):
+            mensaje = f" Sesión programada exitosamente!\n\nID Sesión: {sesion.id}\nCliente: {cliente.nombre}\nPlan: {plan.nombre}\nFecha: {fecha_hora.strftime('%d/%m/%Y %H:%M')}"
+        else:
+            mensaje = f" Sesión programada exitosamente!\n\nID Sesión: {sesion.id}\nEntrenador: {entrenador.nombre}\nPlan: {plan.nombre}\nFecha: {fecha_hora.strftime('%d/%m/%Y %H:%M')}"
+        
+        messagebox.showinfo("Sesión Programada", mensaje)
+        listar_sesiones()
+        
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al programar sesión:\n{e}")
+
+
+@requiere_cliente
+def calificar_sesion():
+    """Permite a un cliente calificar una sesión completada."""
+    try:
+        # Obtener sesiones finalizadas del cliente
+        sesiones_cliente = SesionEntrenamiento.buscar_por_cliente(current_user.id)
+        sesiones_finalizadas = [s for s in sesiones_cliente if s.estado == "FINALIZADA"]
+        
+        if not sesiones_finalizadas:
+            messagebox.showwarning("Advertencia", "No tienes sesiones finalizadas para calificar.")
+            return
+        
+        sesion_info = [f"Sesión {s.id} - {s.plan.nombre} ({s.fecha_hora.strftime('%Y-%m-%d')})" 
+                       for s in sesiones_finalizadas]
+        sesion_seleccionada = simpledialog.askstring("Seleccionar Sesión", 
+                                                   f"Sesiones finalizadas:\n" + "\n".join(sesion_info) + "\n\nIngrese ID de sesión:")
+        if not sesion_seleccionada:
+            return
+        
+        try:
+            sesion_id = int(sesion_seleccionada)
+            sesion = SesionEntrenamiento.buscar_por_id(sesion_id)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        if not sesion or sesion.cliente.id != current_user.id:
+            messagebox.showwarning("Error", "Sesión no encontrada.")
+            return
+        
+        calificacion = simpledialog.askinteger("Calificar Sesión", "Calificación (1-5):", minvalue=1, maxvalue=5)
+        if calificacion:
+            try:
+                sesion.calificar(calificacion)
+                messagebox.showinfo("OK", f"Sesión calificada con {calificacion} estrellas")
+                listar_sesiones()
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al calificar sesión:\n{e}")
+                
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al obtener sesiones:\n{e}")
+
+def listar_planes():
+    """Listar todos los planes de entrenamiento."""
+    lb_output.delete(0, tk.END)
+    try:
+        planes = PlanEntrenamiento.listar_todos()
+        
+        if not planes:
+            lb_output.insert(tk.END, "No hay planes de entrenamiento registrados.")
+            return
+        
+        lb_output.insert(tk.END, "PLANES DE ENTRENAMIENTO:")
+        for plan in planes:
+            lb_output.insert(tk.END, f"  [{plan.nombre}] - {plan.objetivo}")
+            lb_output.insert(tk.END, f"    Entrenador: ID {plan.id_entrenador} | Ejercicios: {len(plan.ejercicios)}")
+            for i, ejercicio in enumerate(plan.ejercicios, 1):
+                lb_output.insert(tk.END, f"      {i}. {ejercicio.nombre} ({ejercicio.tipo})")
+            lb_output.insert(tk.END, "")
+            
+    except Exception as e:
+        lb_output.insert(tk.END, f"Error al cargar planes: {e}")
+
+def listar_sesiones():
+    """Listar todas las sesiones de entrenamiento."""
+    lb_output.delete(0, tk.END)
+    try:
+        sesiones = SesionEntrenamiento.listar_todas()
+        
+        if not sesiones:
+            lb_output.insert(tk.END, "No hay sesiones de entrenamiento programadas.")
+            return
+        
+        lb_output.insert(tk.END, "SESIONES DE ENTRENAMIENTO:")
+        for sesion in sesiones:
+            lb_output.insert(tk.END, f"  [ID: {sesion.id}] {sesion.cliente.nombre} con {sesion.entrenador.nombre}")
+            lb_output.insert(tk.END, f"    Plan: {sesion.plan.nombre} | Estado: {sesion.estado} | Calificación: {sesion.calificacion}/5")
+            lb_output.insert(tk.END, f"    Fecha: {sesion.fecha_hora.strftime('%Y-%m-%d %H:%M')}")
+            lb_output.insert(tk.END, "")
+            
+    except Exception as e:
+        lb_output.insert(tk.END, f"Error al cargar sesiones: {e}")
+
+def listar_usuarios():
+    """Listar todos los usuarios del sistema."""
+    lb_output.delete(0, tk.END)
+    try:
+        clientes = Cliente.listar_todos()
+        entrenadores = Entrenador.listar_todos()
+        
+        if not clientes and not entrenadores:
+            lb_output.insert(tk.END, "No hay usuarios registrados.")
+            return
+        
+        lb_output.insert(tk.END, "USUARIOS DEL SISTEMA:")
+        
+        if entrenadores:
+            lb_output.insert(tk.END, "  ENTRENADORES:")
+            for entrenador in entrenadores:
+                lb_output.insert(tk.END, f"    [ID: {entrenador.id}] {entrenador.nombre} - {entrenador.especialidad} ({entrenador.anos_experiencia} años exp.)")
+        
+        if clientes:
+            lb_output.insert(tk.END, "  CLIENTES:")
+            for cliente in clientes:
+                lb_output.insert(tk.END, f"    [ID: {cliente.id}] {cliente.nombre} - Nivel: {cliente.nivel_fitness}")
+                
+    except Exception as e:
+        lb_output.insert(tk.END, f"Error al cargar usuarios: {e}")
+
+def simular_entrenamiento():
+    """Simular la finalización de una sesión de entrenamiento."""
+    try:
+        sesiones = SesionEntrenamiento.listar_todas()
+        sesiones_activas = [s for s in sesiones if s.estado == "PROGRAMADA"]
+        
+        if not sesiones_activas:
+            messagebox.showwarning("Advertencia", "No hay sesiones activas para finalizar.")
+            return
+        
+        sesion_info = [f"Sesión {s.id} - {s.cliente.nombre} ({s.fecha_hora.strftime('%Y-%m-%d')})" 
+                       for s in sesiones_activas]
+        sesion_seleccionada = simpledialog.askstring("Finalizar Sesión", 
+                                                   f"Sesiones activas:\n" + "\n".join(sesion_info) + "\n\nIngrese ID de sesión:")
+        if not sesion_seleccionada:
+            return
+        
+        try:
+            sesion_id = int(sesion_seleccionada)
+            sesion = SesionEntrenamiento.buscar_por_id(sesion_id)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        if not sesion or sesion.estado != "PROGRAMADA":
+            messagebox.showwarning("Error", "Sesión no encontrada o no está programada.")
+            return
+        
+        try:
+            sesion.cambiar_estado("FINALIZADA")
+            messagebox.showinfo("OK", f"Sesión {sesion_id} finalizada exitosamente")
+            listar_sesiones()
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al finalizar sesión:\n{e}")
+            
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al cargar sesiones:\n{e}")
+
+def mostrar_dashboard():
+    """Mostrar el dashboard del usuario actual."""
+    if current_user:
+        lb_output.delete(0, tk.END)
+        try:
+            if isinstance(current_user, Cliente):
+                sesiones = SesionEntrenamiento.buscar_por_cliente(current_user.id)
+                sesiones_completadas = len([s for s in sesiones if s.estado == 'FINALIZADA'])
+                
+                lb_output.insert(tk.END, f"DASHBOARD DE {current_user.nombre.upper()}")
+                lb_output.insert(tk.END, f"Nivel: {current_user.nivel_fitness}")
+                lb_output.insert(tk.END, f"Sesiones completadas: {sesiones_completadas}")
+                lb_output.insert(tk.END, f"Total de sesiones: {len(sesiones)}")
+                lb_output.insert(tk.END, f"Email: {current_user.email}")
+                
+            else:  # Entrenador
+                planes = current_user.obtener_planes()
+                sesiones = current_user.obtener_sesiones()
+                
+                lb_output.insert(tk.END, f"PANEL DE ENTRENADOR: {current_user.nombre.upper()}")
+                lb_output.insert(tk.END, f"Especialidad: {current_user.especialidad}")
+                lb_output.insert(tk.END, f"Experiencia: {current_user.anos_experiencia} años")
+                lb_output.insert(tk.END, f"Planes creados: {len(planes)}")
+                lb_output.insert(tk.END, f"Sesiones programadas: {len(sesiones)}")
+                lb_output.insert(tk.END, f"Email: {current_user.email}")
+                
+        except Exception as e:
+            lb_output.insert(tk.END, f"Error al cargar dashboard: {e}")
+
+@requiere_entrenador
+def eliminar_usuario():
+    """Permite a un entrenador eliminar cualquier usuario del sistema, manejando sesiones relacionadas."""
+    try:
+        # Cargar todos los usuarios del sistema
+        clientes = Cliente.listar_todos()
+        entrenadores = Entrenador.listar_todos()
+        
+        if not clientes and not entrenadores:
+            messagebox.showwarning("Advertencia", "No hay usuarios registrados en el sistema.")
+            return
+        
+        # Crear lista combinada de usuarios
+        todos_usuarios = []
+        for cliente in clientes:
+            # Contar sesiones del cliente
+            sesiones_cliente = SesionEntrenamiento.buscar_por_cliente(cliente.id)
+            sesiones_activas = [s for s in sesiones_cliente if s.estado != 'FINALIZADA']
+            
+            todos_usuarios.append({
+                'id': cliente.id,
+                'nombre': cliente.nombre,
+                'email': cliente.email,
+                'tipo': 'CLIENTE',
+                'info_adicional': f"Nivel: {cliente.nivel_fitness} | Sesiones activas: {len(sesiones_activas)}"
+            })
+        
+        for entrenador in entrenadores:
+            # Contar sesiones del entrenador
+            sesiones_entrenador = SesionEntrenamiento.buscar_por_entrenador(entrenador.id)
+            sesiones_activas = [s for s in sesiones_entrenador if s.estado != 'FINALIZADA']
+            planes_entrenador = entrenador.obtener_planes()
+            
+            todos_usuarios.append({
+                'id': entrenador.id,
+                'nombre': entrenador.nombre,
+                'email': entrenador.email,
+                'tipo': 'ENTRENADOR',
+                'info_adicional': f"Especialidad: {entrenador.especialidad} | Planes: {len(planes_entrenador)} | Sesiones activas: {len(sesiones_activas)}"
+            })
+        
+        # Mostrar lista de usuarios
+        lista_usuarios = [f"ID: {user['id']} | {user['nombre']} ({user['tipo']}) - {user['info_adicional']}" 
+                         for user in todos_usuarios]
+        
+        usuario_info = simpledialog.askstring("Eliminar Usuario", 
+                                            f"Usuarios del sistema:\n" + "\n".join(lista_usuarios) + 
+                                            "\n\nIngrese ID del usuario a eliminar:")
+        if not usuario_info:
+            return
+        
+        try:
+            usuario_id = int(usuario_info)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        # Buscar el usuario
+        usuario_a_eliminar = None
+        tipo_usuario = None
+        
+        # Buscar como cliente primero
+        usuario_a_eliminar = Cliente.buscar_por_id(usuario_id)
+        if usuario_a_eliminar:
+            tipo_usuario = 'CLIENTE'
+        else:
+            # Buscar como entrenador
+            usuario_a_eliminar = Entrenador.buscar_por_id(usuario_id)
+            if usuario_a_eliminar:
+                tipo_usuario = 'ENTRENADOR'
+        
+        if not usuario_a_eliminar:
+            messagebox.showwarning("Error", "Usuario no encontrado.")
+            return
+        
+        # Verificar que no se está intentando eliminar a sí mismo
+        if usuario_a_eliminar.id == current_user.id:
+            messagebox.showwarning("Error", "No puedes eliminarte a ti mismo.")
+            return
+        
+        # Obtener información de sesiones para mostrar en la confirmación
+        sesiones_usuario = []
+        if tipo_usuario == 'CLIENTE':
+            sesiones_usuario = SesionEntrenamiento.buscar_por_cliente(usuario_id)
+        else:  # ENTRENADOR
+            sesiones_usuario = SesionEntrenamiento.buscar_por_entrenador(usuario_id)
+        
+        sesiones_activas = [s for s in sesiones_usuario if s.estado != 'FINALIZADA']
+        sesiones_finalizadas = [s for s in sesiones_usuario if s.estado == 'FINALIZADA']
+        
+        # Confirmación de eliminación con información detallada
+        mensaje_confirmacion = (
+            f"¿Estás seguro de que deseas eliminar al siguiente usuario?\n\n"
+            f"ID: {usuario_a_eliminar.id}\n"
+            f"Nombre: {usuario_a_eliminar.nombre}\n"
+            f"Email: {usuario_a_eliminar.email}\n"
+            f"Tipo: {tipo_usuario}\n"
+            f"Sesiones activas: {len(sesiones_activas)}\n"
+            f"Sesiones finalizadas: {len(sesiones_finalizadas)}\n\n"
+            f" Esta acción eliminará TODAS las sesiones del usuario.\n"
+            f" Esta acción no se puede deshacer."
+        )
+        
+        confirmacion = messagebox.askyesno("Confirmar Eliminación", mensaje_confirmacion)
+        
+        if not confirmacion:
+            return
+        
+        # Eliminar el usuario y sus sesiones
+        try:
+            from db_connection import create_connection
+            conn = create_connection()
+            cursor = conn.cursor()
+            
+            try:
+                if tipo_usuario == 'CLIENTE':
+                    # Para cliente: eliminar sesiones primero, luego el cliente
+                    if sesiones_usuario:
+                        # Eliminar todas las sesiones del cliente
+                        cursor.execute("DELETE FROM sesion_entrenamiento WHERE id_cliente = %s", (usuario_id,))
+                    
+                    # Eliminar de tabla cliente (cascade eliminará de usuario)
+                    cursor.execute("DELETE FROM cliente WHERE id_usuario = %s", (usuario_id,))
+                    
+                else:  # ENTRENADOR
+                    # Para entrenador: manejar planes y sesiones primero
+                    
+                    # Verificar si el entrenador tiene planes creados
+                    cursor.execute("SELECT COUNT(*) FROM plan_entrenamiento WHERE id_entrenador = %s", (usuario_id,))
+                    tiene_planes = cursor.fetchone()[0] > 0
+                    
+                    if tiene_planes:
+                        # Preguntar qué hacer con los planes
+                        opcion_planes = messagebox.askyesno(
+                            "Planes del Entrenador",
+                            f"El entrenador {usuario_a_eliminar.nombre} tiene planes creados.\n\n"
+                            f"¿Deseas eliminar también todos sus planes?\n\n"
+                            f"Si seleccionas 'No', la eliminación se cancelará."
+                        )
+                        
+                        if opcion_planes:
+                            # Eliminar planes del entrenador (cascade eliminará las sesiones relacionadas)
+                            cursor.execute("DELETE FROM plan_entrenamiento WHERE id_entrenador = %s", (usuario_id,))
+                        else:
+                            messagebox.showinfo("Cancelado", "Eliminación cancelada.")
+                            return
+                    else:
+                        # Si no tiene planes, eliminar sus sesiones directamente
+                        if sesiones_usuario:
+                            cursor.execute("DELETE FROM sesion_entrenamiento WHERE id_entrenador = %s", (usuario_id,))
+                    
+                    # Eliminar de tabla entrenador
+                    cursor.execute("DELETE FROM entrenador WHERE id_usuario = %s", (usuario_id,))
+                
+                conn.commit()
+                
+                # Mensaje de éxito con resumen
+                mensaje_exito = (
+                    f" Usuario eliminado correctamente:\n\n"
+                    f"Nombre: {usuario_a_eliminar.nombre}\n"
+                    f"Tipo: {tipo_usuario}\n"
+                    f"Sesiones eliminadas: {len(sesiones_usuario)}\n"
+                )
+                
+                if tipo_usuario == 'ENTRENADOR' and tiene_planes:
+                    mensaje_exito += f"Planes eliminados: {tiene_planes}\n"
+                
+                messagebox.showinfo("Éxito", mensaje_exito)
+                listar_usuarios()  # Actualizar la lista
+                
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                cursor.close()
+                conn.close()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo eliminar el usuario:\n{e}")
+            
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al procesar la eliminación:\n{e}")
+
+@requiere_entrenador
+def eliminar_plan_entrenamiento():
+    """Permite a un entrenador eliminar uno de sus planes de entrenamiento."""
+    try:
+        # Cargar planes del entrenador actual
+        planes = current_user.obtener_planes()
+        
+        if not planes:
+            messagebox.showwarning("Advertencia", "No tienes planes creados.")
+            return
+        
+        # Mostrar planes con información detallada
+        lista_planes = [f"ID: {plan.id_plan} | {plan.nombre} - {plan.objetivo} | Ejercicios: {len(plan.ejercicios)}" 
+                       for plan in planes]
+        
+        plan_info = simpledialog.askstring("Eliminar Plan", 
+                                         f"Tus planes:\n" + "\n".join(lista_planes) + 
+                                         "\n\nIngrese ID del plan a eliminar:")
+        if not plan_info:
+            return
+        
+        try:
+            plan_id = int(plan_info)
+            plan = next((p for p in planes if p.id_plan == plan_id), None)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        if not plan:
+            messagebox.showwarning("Error", "Plan no encontrado.")
+            return
+        
+        # Verificar si el plan tiene sesiones programadas
+        from sesion_entrenamiento import SesionEntrenamiento
+        sesiones_plan = [s for s in SesionEntrenamiento.listar_todas() if s.plan.id_plan == plan_id]
+        sesiones_activas = [s for s in sesiones_plan if s.estado != 'FINALIZADA']
+        
+        # Confirmación de eliminación
+        mensaje_confirmacion = (
+            f"¿Estás seguro de que deseas eliminar el siguiente plan?\n\n"
+            f"ID: {plan.id_plan}\n"
+            f"Nombre: {plan.nombre}\n"
+            f"Objetivo: {plan.objetivo}\n"
+            f"Ejercicios: {len(plan.ejercicios)}\n"
+            f"Sesiones activas: {len(sesiones_activas)}\n\n"
+            f"Esta acción eliminará todos los ejercicios del plan.\n"
+            f"Las sesiones que usen este plan quedarán sin plan asignado."
+        )
+        
+        confirmacion = messagebox.askyesno("Confirmar Eliminación", mensaje_confirmacion)
+        
+        if not confirmacion:
+            return
+        
+        # Eliminar el plan
+        plan.eliminar()
+        
+        messagebox.showinfo("Éxito", 
+                          f"Plan eliminado correctamente:\n\n"
+                          f"Nombre: {plan.nombre}\n"
+                          f"Ejercicios eliminados: {len(plan.ejercicios)}\n"
+                          f"Sesiones afectadas: {len(sesiones_plan)}")
+        
+        listar_planes()
+        
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al eliminar plan:\n{e}")
+
+@requiere_entrenador
+def actualizar_plan_entrenamiento():
+    """Permite a un entrenador actualizar la información de un plan."""
+    try:
+        # Cargar planes del entrenador actual
+        planes = current_user.obtener_planes()
+        
+        if not planes:
+            messagebox.showwarning("Advertencia", "No tienes planes creados.")
+            return
+        
+        # Mostrar planes
+        lista_planes = [f"ID: {plan.id_plan} | {plan.nombre} - {plan.objetivo}" 
+                       for plan in planes]
+        
+        plan_info = simpledialog.askstring("Actualizar Plan", 
+                                         f"Tus planes:\n" + "\n".join(lista_planes) + 
+                                         "\n\nIngrese ID del plan a actualizar:")
+        if not plan_info:
+            return
+        
+        try:
+            plan_id = int(plan_info)
+            plan = next((p for p in planes if p.id_plan == plan_id), None)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        if not plan:
+            messagebox.showwarning("Error", "Plan no encontrado.")
+            return
+        
+        # Solicitar nuevos datos
+        nuevo_nombre = simpledialog.askstring("Nuevo Nombre", 
+                                            f"Nombre actual: {plan.nombre}\n\nIngrese nuevo nombre:", 
+                                            initialvalue=plan.nombre)
+        if not nuevo_nombre:
+            return
+        
+        nuevo_objetivo = simpledialog.askstring("Nuevo Objetivo", 
+                                              f"Objetivo actual: {plan.objetivo}\n\nIngrese nuevo objetivo:", 
+                                              initialvalue=plan.objetivo)
+        if not nuevo_objetivo:
+            return
+        
+        # Actualizar el plan
+        plan.actualizar(nuevo_nombre.strip(), nuevo_objetivo.strip())
+        
+        messagebox.showinfo("Éxito", 
+                          f"Plan actualizado correctamente:\n\n"
+                          f"Nombre: {nuevo_nombre}\n"
+                          f"Objetivo: {nuevo_objetivo}")
+        
+        listar_planes()
+        
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al actualizar plan:\n{e}")
+
+@requiere_entrenador
+def eliminar_ejercicio_plan():
+    """Permite a un entrenador eliminar un ejercicio de un plan."""
+    try:
+        # Cargar planes del entrenador actual
+        planes = current_user.obtener_planes()
+        
+        if not planes:
+            messagebox.showwarning("Advertencia", "No tienes planes creados.")
+            return
+        
+        # Seleccionar plan
+        lista_planes = [f"ID: {plan.id_plan} | {plan.nombre} - Ejercicios: {len(plan.ejercicios)}" 
+                       for plan in planes]
+        
+        plan_info = simpledialog.askstring("Seleccionar Plan", 
+                                         f"Tus planes:\n" + "\n".join(lista_planes) + 
+                                         "\n\nIngrese ID del plan:")
+        if not plan_info:
+            return
+        
+        try:
+            plan_id = int(plan_info)
+            plan = next((p for p in planes if p.id_plan == plan_id), None)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        if not plan:
+            messagebox.showwarning("Error", "Plan no encontrado.")
+            return
+        
+        if not plan.ejercicios:
+            messagebox.showwarning("Advertencia", "Este plan no tiene ejercicios.")
+            return
+        
+        # Mostrar ejercicios del plan con información detallada
+        lista_ejercicios = []
+        for i, ejercicio in enumerate(plan.ejercicios, 1):
+            info_ejercicio = f"{i}. ID: {ejercicio.id} | {ejercicio.nombre} ({ejercicio.tipo})"
+            if isinstance(ejercicio, EjercicioFuerza):
+                info_ejercicio += f" - {ejercicio.series}x{ejercicio.repeticiones} - {ejercicio.peso_kg}kg"
+            else:  # EjercicioCardio
+                info_ejercicio += f" - {ejercicio.duracion_minutos}min - {ejercicio.tipo_cardio}"
+            lista_ejercicios.append(info_ejercicio)
+        
+        ejercicio_info = simpledialog.askstring("Eliminar Ejercicio", 
+                                              f"Ejercicios en '{plan.nombre}':\n" + "\n".join(lista_ejercicios) + 
+                                              "\n\nIngrese ID del ejercicio a eliminar:")
+        if not ejercicio_info:
+            return
+        
+        try:
+            ejercicio_id = int(ejercicio_info)
+            ejercicio = next((e for e in plan.ejercicios if e.id == ejercicio_id), None)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        if not ejercicio:
+            messagebox.showwarning("Error", "Ejercicio no encontrado en este plan.")
+            return
+        
+        # Confirmar eliminación
+        confirmacion = messagebox.askyesno(
+            "Confirmar Eliminación",
+            f"¿Eliminar el siguiente ejercicio del plan '{plan.nombre}'?\n\n"
+            f"Ejercicio: {ejercicio.nombre}\n"
+            f"Tipo: {ejercicio.tipo}\n"
+            f"Descripción: {ejercicio.descripcion}"
+        )
+        
+        if not confirmacion:
+            return
+        
+        # Eliminar el ejercicio del plan
+        plan.eliminar_ejercicio(ejercicio)
+        
+        messagebox.showinfo("Éxito", 
+                          f"Ejercicio eliminado del plan:\n\n"
+                          f"Plan: {plan.nombre}\n"
+                          f"Ejercicio: {ejercicio.nombre}")
+        
+        listar_planes()
+        
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al eliminar ejercicio:\n{e}")
+
+def ver_detalles_ejercicios_plan():
+    """Muestra información detallada de todos los ejercicios de un plan."""
+    try:
+        # Cargar planes 
+        planes = PlanEntrenamiento.listar_todos()
+        
+        if not planes:
+            messagebox.showwarning("Advertencia", "No hay planes.")
+            return
+        
+        # Seleccionar plan
+        lista_planes = [f"ID: {plan.id_plan} | {plan.nombre} - Ejercicios: {len(plan.ejercicios)}" 
+                       for plan in planes]
+        
+        plan_info = simpledialog.askstring("Ver Detalles de Plan", 
+                                         f"Planes:\n" + "\n".join(lista_planes) + 
+                                         "\n\nIngrese ID del plan:")
+        if not plan_info:
+            return
+        
+        try:
+            plan_id = int(plan_info)
+            plan = next((p for p in planes if p.id_plan == plan_id), None)
+        except ValueError:
+            messagebox.showerror("Error", "ID debe ser un número")
+            return
+        
+        if not plan:
+            messagebox.showwarning("Error", "Plan no encontrado.")
+            return
+        
+        if not plan.ejercicios:
+            messagebox.showwarning("Advertencia", "Este plan no tiene ejercicios.")
+            return
+        
+        # Mostrar detalles en el listbox
+        lb_output.delete(0, tk.END)
+        lb_output.insert(tk.END, f"DETALLES DEL PLAN: {plan.nombre.upper()}")
+        lb_output.insert(tk.END, f"Objetivo: {plan.objetivo}")
+        lb_output.insert(tk.END, f"Ejercicios: {len(plan.ejercicios)}")
+        lb_output.insert(tk.END, "")
+        
+        for i, ejercicio in enumerate(plan.ejercicios, 1):
+            lb_output.insert(tk.END, f"EJERCICIO {i}: {ejercicio.nombre.upper()}")
+            lb_output.insert(tk.END, f"  Tipo: {ejercicio.tipo}")
+            lb_output.insert(tk.END, f"  Descripción: {ejercicio.descripcion}")
+            
+            if isinstance(ejercicio, EjercicioFuerza):
+                lb_output.insert(tk.END, f"  Series: {ejercicio.series}")
+                lb_output.insert(tk.END, f"  Repeticiones: {ejercicio.repeticiones}")
+                lb_output.insert(tk.END, f"  Peso: {ejercicio.peso_kg} kg")
+                lb_output.insert(tk.END, f"  Intensidad: {ejercicio.calcular_intensidad():.2f}")
+            else:  # EjercicioCardio
+                lb_output.insert(tk.END, f"  Duración: {ejercicio.duracion_minutos} minutos")
+                lb_output.insert(tk.END, f"  Tipo de cardio: {ejercicio.tipo_cardio}")
+                lb_output.insert(tk.END, f"  Nivel resistencia: {ejercicio.nivel_resistencia}")
+                lb_output.insert(tk.END, f"  Ritmo cardíaco objetivo: {ejercicio.ritmo_cardiaco_objetivo} bpm")
+                lb_output.insert(tk.END, f"  Intensidad: {ejercicio.calcular_intensidad():.2f}")
+            
+            lb_output.insert(tk.END, f"  Instrucciones: {ejercicio.mostrar_instrucciones()}")
+            lb_output.insert(tk.END, "")
+        
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al cargar detalles:\n{e}")
+
+def salir():
+    root.destroy()
+    sys.exit(0)
+
+def ajustar_menu_por_rol():
+    """Habilita/deshabilita opciones del menú según el rol del usuario actual."""
+    if current_user is None:
+        # Deshabilitar todo
+        for i in range(acciones_menu.index("end") + 1):
+            acciones_menu.entryconfig(i, state="disabled")
+        return
+
+    # Habilitar opciones comunes
+    acciones_menu.entryconfig("Mostrar dashboard", state="normal")
+    acciones_menu.entryconfig("Listar usuarios", state="normal")
+    acciones_menu.entryconfig("Listar sesiones", state="normal")
+    acciones_menu.entryconfig("Listar planes", state="normal")
+
+    # Opciones específicas por rol
+    if isinstance(current_user, Entrenador):
+        acciones_menu.entryconfig("Crear plan entrenamiento", state="normal")
+        acciones_menu.entryconfig("Agregar ejercicio a plan", state="normal")
+        acciones_menu.entryconfig("Eliminar ejercicio de plan", state="normal")
+        acciones_menu.entryconfig("Ver detalles de ejercicios", state="normal")
+        acciones_menu.entryconfig("Actualizar plan", state="normal")
+        acciones_menu.entryconfig("Eliminar plan", state="normal")
+        acciones_menu.entryconfig("Programar sesión", state="normal")
+        acciones_menu.entryconfig("Simular entrenamiento", state="normal")
+        acciones_menu.entryconfig("Eliminar usuario", state="normal")
+        acciones_menu.entryconfig("Calificar sesión", state="disabled")
+    elif isinstance(current_user, Cliente):
+        acciones_menu.entryconfig("Crear plan entrenamiento", state="disabled")
+        acciones_menu.entryconfig("Agregar ejercicio a plan", state="disabled")
+        acciones_menu.entryconfig("Eliminar ejercicio de plan", state="disabled")
+        acciones_menu.entryconfig("Ver detalles de ejercicios", state="normal")
+        acciones_menu.entryconfig("Actualizar plan", state="disabled")
+        acciones_menu.entryconfig("Eliminar plan", state="disabled")
+        acciones_menu.entryconfig("Programar sesión", state="normal")
+        acciones_menu.entryconfig("Simular entrenamiento", state="disabled")
+        acciones_menu.entryconfig("Eliminar usuario", state="disabled")
+        acciones_menu.entryconfig("Calificar sesión", state="normal")
+
+# --------------------------
+# Interfaz gráfica
+# --------------------------
+
+root = tk.Tk()
+root.title("Fit Coach Pro - Interfaz gráfica")
+root.geometry("800x600")
+root.minsize(700, 500)
+
+# Menú principal
+menubar = tk.Menu(root)
+
+# Menú "Acciones" con las opciones
+acciones_menu = tk.Menu(menubar, tearoff=0)
+acciones_menu.add_command(label="Mostrar dashboard", command=mostrar_dashboard)
+acciones_menu.add_separator()
+acciones_menu.add_command(label="Crear plan entrenamiento", command=crear_plan_entrenamiento)
+acciones_menu.add_command(label="Agregar ejercicio a plan", command=agregar_ejercicio_plan)
+acciones_menu.add_command(label="Eliminar ejercicio de plan", command=eliminar_ejercicio_plan)
+acciones_menu.add_command(label="Ver detalles de ejercicios", command=ver_detalles_ejercicios_plan)
+acciones_menu.add_command(label="Actualizar plan", command=actualizar_plan_entrenamiento)
+acciones_menu.add_command(label="Eliminar plan", command=eliminar_plan_entrenamiento)
+acciones_menu.add_command(label="Programar sesión", command=programar_sesion)
+acciones_menu.add_separator()
+acciones_menu.add_command(label="Simular entrenamiento", command=simular_entrenamiento)
+acciones_menu.add_command(label="Calificar sesión", command=calificar_sesion)
+acciones_menu.add_command(label="Eliminar usuario", command=eliminar_usuario)
+acciones_menu.add_separator()
+acciones_menu.add_command(label="Listar usuarios", command=listar_usuarios)
+acciones_menu.add_command(label="Listar sesiones", command=listar_sesiones)
+acciones_menu.add_command(label="Listar planes", command=listar_planes)
+menubar.add_cascade(label="Acciones", menu=acciones_menu)
+
+# Menú "Opciones" con Salir
+archivo_menu = tk.Menu(menubar, tearoff=0)
+archivo_menu.add_command(label="Salir", command=salir)
+menubar.add_cascade(label="Opciones", menu=archivo_menu)
+
+root.config(menu=menubar)
+
+# Frame principal para salida / resultados
+frame_output = ttk.Frame(root, padding=(12, 12))
+frame_output.pack(side=tk.TOP, expand=True, fill=tk.BOTH)
+
+lbl_output = ttk.Label(frame_output, text="Bienvenido a FIT COACH PRO", font=("Segoe UI", 12, "bold"))
+lbl_output.pack(anchor="w")
+
+# Listbox con scrollbar para mostrar resultados
+frame_list = ttk.Frame(frame_output)
+frame_list.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+
+sb = ttk.Scrollbar(frame_list, orient=tk.VERTICAL)
+lb_output = tk.Listbox(frame_list, yscrollcommand=sb.set, font=("Consolas", 10))
+sb.config(command=lb_output.yview)
+sb.pack(side=tk.RIGHT, fill=tk.Y)
+lb_output.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+# Mensaje de ayuda inferior
+lbl_help = ttk.Label(frame_output, text="Iniciando sistema de fitness...", font=("Segoe UI", 9))
+lbl_help.pack(anchor="w", pady=(8, 0))
+
+# Al iniciar, pedir login directamente (ya no creamos datos de prueba)
+root.after(100, login_inicial)
+
+root.mainloop()

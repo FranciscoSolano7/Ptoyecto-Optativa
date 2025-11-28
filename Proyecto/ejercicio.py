@@ -8,14 +8,6 @@ class Ejercicio(ABC):
         self.descripcion = descripcion
         self.tipo = tipo
 
-    @abstractmethod
-    def calcular_intensidad(self):
-        pass
-
-    @abstractmethod
-    def mostrar_instrucciones(self):
-        pass
-
     @classmethod
     def crear(cls, nombre, descripcion, tipo):
         """Crear un nuevo ejercicio"""
